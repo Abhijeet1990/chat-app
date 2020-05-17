@@ -1,27 +1,115 @@
 const socket = io()
 
+// Elements
+const $messageForm = document.querySelector('#message-form')
+const $messageFormInput = $messageForm.querySelector('input')
+const $submitButton = $messageForm.querySelector('button')
+
+const $sendLocation = document.querySelector('#send-location')
+const $messages = document.querySelector('#messages') //where to render the message
+
+//Templates
+const messageTemplate = document.querySelector('#message-template').innerHTML 
+const locationMessageTemplate = document.querySelector('#location-message-template').innerHTML
+const sidebarTemplate = document.querySelector('#sidebar-template').innerHTML
+
+//Options...extract value from query strings
+const {username,room} = Qs.parse(location.search,{ignoreQueryPrefix:true})
+const autoscroll = ()=>{
+    //new message element
+    const $newmessage = $messages.lastElementChild
+
+    //height of last message
+    const newMessageStyles = getComputedStyle($newmessage)
+    const newMessageMargin = parseInt(newMessageStyles.margin)
+    const newmessageHeight = $newmessage.offsetHeight + newMessageMargin
+
+    //visible height
+    const visibleHeight = $messages.offsetHeight
+
+    // Height of messages container
+    const containerHeight = $messages.scrollHeight
+
+    // how far we have scrolled
+    const scrollOffset = $messages.scrollTop + visibleHeight
+
+    if(containerHeight - newmessageHeight <= scrollOffset){
+        $messages.scrollTop = $messages.scrollHeight
+    }
+
+
+}
+
 socket.on('message',(message)=>{
     console.log(message)
+    const html = Mustache.render(messageTemplate,{ //mustache library for rendering html templates
+        username:message.username,
+        message: message.text,
+        createdAt: moment(message.createdAt).format('h:mm:ss') //moment for timestamp formating
+    }) // get the html template
+    $messages.insertAdjacentHTML('beforeend',html)
+    autoscroll()
 })
 
-document.querySelector('#message-form').addEventListener('submit',(e)=>{
+socket.on('locationMessage',(msg)=>{
+    const html = Mustache.render(locationMessageTemplate,{
+        username:msg.username,
+        url:msg.url,
+        createdAt: moment(msg.createdAt).format('h:mm:ss')
+    }) // get the html template
+    $messages.insertAdjacentHTML('beforeend',html)
+    autoscroll()
+})
+
+socket.on('roomData',({room,users})=>{
+    const html = Mustache.render(sidebarTemplate,{
+        room,
+        users
+    }) // get the html template
+    document.querySelector('#sidebar').innerHTML = html
+})
+
+$messageForm.addEventListener('submit',(e)=>{
     e.preventDefault()
+    //disable the form button
+    $submitButton.setAttribute('disabled','disabled')
+
     //const message = document.querySelector('input').value
-    const message = e.target.elements.msg.value
-    socket.emit('sendMessage',message)
+    const message = e.target.elements.message.value
+    socket.emit('sendMessage',message,(error)=>{
+        //enable the form
+        $submitButton.removeAttribute('disabled')
+        $messageFormInput.value=''
+        $messageFormInput.focus()
+
+        if(error){
+            return console.log(error)
+        }
+        console.log('Message Delivered!')
+    })
 })
 
-document.querySelector('#send-location').addEventListener('click',(e)=>{
+$sendLocation.addEventListener('click',(e)=>{
     if(!navigator.geolocation){
         return alert('Geo location is not supported by your browser')
     }
-
+    $sendLocation.setAttribute('disabled','disabled') //disabled attribute set to disabled
     navigator.geolocation.getCurrentPosition((position)=>{
         socket.emit('sendLocation',{
             latitude: position.coords.latitude,
             longitude: position.coords.longitude
+        },(ack)=>{
+            $sendLocation.removeAttribute('disabled') // removed the disabled attribute
+            console.log('Location delivered : ',ack)
         })
     })
+})
+
+socket.emit('join',{username,room},(error)=>{
+    if(error){
+        alert(error)
+        location.href = '/'
+    }
 })
 
 /* socket.on('countUpdated',(c)=>{
